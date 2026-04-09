@@ -549,16 +549,25 @@ const PROXIES = [
 ];
 
 async function yahooFetch(ticker, params) {
-  const t = encodeURIComponent(ticker);
   const qs = new URLSearchParams(params).toString();
-  for (const proxyFn of PROXIES) {
+  const baseUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?' + qs;
+
+  // corsproxy.io: skicka hela Yahoo-URL:en inkl. params som argument
+  const proxied = 'https://corsproxy.io/?url=' + encodeURIComponent(baseUrl);
+
+  // Fallbacks: direkt (fungerar ej pa iPhone men bra pa desktop)
+  const direct1 = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?' + qs;
+  const direct2 = 'https://query2.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?' + qs;
+
+  const urls = [proxied, direct1, direct2];
+
+  for (const url of urls) {
     try {
-      const url = proxyFn(t) + '?' + qs;
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (!res.ok) continue;
       const json = await res.json();
       if (json && json.chart && json.chart.result && json.chart.result[0]) return json;
-    } catch(e) { /* prova nasta proxy */ }
+    } catch(e) { /* prova nasta */ }
   }
   return null;
 }
@@ -572,7 +581,14 @@ async function testProxy() {
   for (let i = 0; i < PROXIES.length; i++) {
     try {
       const t = encodeURIComponent(testTicker);
-      const url = PROXIES[i](t) + '?interval=1d&range=5d&includePrePost=false';
+      const baseU = 'https://query1.finance.yahoo.com/v8/finance/chart/' + testTicker + '?interval=1d&range=3mo&includePrePost=false';
+      const proxyUrls = [
+        'https://corsproxy.io/?url=' + encodeURIComponent(baseU),
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent(baseU),
+        'https://query1.finance.yahoo.com/v8/finance/chart/' + testTicker + '?interval=1d&range=3mo',
+        'https://query2.finance.yahoo.com/v8/finance/chart/' + testTicker + '?interval=1d&range=3mo',
+      ];
+      const url = proxyUrls[i];
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       const json = await res.json();
       const ok = !!(json && json.chart && json.chart.result && json.chart.result[0]);
