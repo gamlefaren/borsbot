@@ -421,12 +421,17 @@
   </div>
   <div class="card">
     <div class="card-title">Strategi-förklaring</div>
-    <p style="color:var(--muted);line-height:1.7;font-size:12px">
-      Boten analyserar varje innehav med tre indikatorer:<br><br>
-      <strong style="color:var(--heading)">RSI (14)</strong> — Relative Strength Index. Under 30 = översålt (köpsignal). Över 70 = överköpt (säljsignal).<br><br>
-      <strong style="color:var(--heading)">MA Cross (20/50)</strong> — När 20-dagars snittet korsar över 50-dagars = bullish. Under = bearish.<br><br>
-      <strong style="color:var(--heading)">Momentum (10d)</strong> — Procentuell förändring senaste 10 handelsdagar.<br><br>
-      Boten <em>föreslår</em> — du beslutar.
+    <p style="color:var(--muted);line-height:1.8;font-size:12px">
+      Optimerad for <strong style="color:var(--heading)">veckovis handel och langsiktigt sparande</strong>. Tre indikatorer maste peka samma hall for en signal.<br><br>
+      <strong style="color:var(--heading)">RSI (21)</strong> — Oversalt under 35 = kopsignal. Verkopt over 65 = saljsignal. Langre period ger stabilare signal an dagstrading-RSI.<br><br>
+      <strong style="color:var(--heading)">Golden/Death Cross (MA50/MA200)</strong> — Det klassiska langsiktiga trendverktyget. MA50 over MA200 = bull-marknad. Under = bear.<br><br>
+      <strong style="color:var(--heading)">Momentum (20 dagar)</strong> — En manads prisutveckling. Filtrerar bort dagsbrus.<br><br>
+      <strong style="color:var(--heading)">52-veckors position</strong> — Var i arets kursintervall aktien befinner sig. Kompletterande info.<br><br>
+      <strong style="color:var(--heading)">KOP</strong> = 2+ indikatorer positiva, 0 negativa<br>
+      <strong style="color:var(--heading)">SALJ</strong> = 2+ indikatorer negativa, 0 positiva<br>
+      <strong style="color:var(--heading)">VANTA</strong> = 1 indikator pekar en riktning<br>
+      <strong style="color:var(--heading)">HALL</strong> = motstaende signaler — avvakta<br><br>
+      Boten <em>foreslar</em> — du beslutar.
     </p>
   </div>
 </div>
@@ -522,7 +527,7 @@
 let portfolio = JSON.parse(localStorage.getItem('bb-portfolio') || '[]');
 let logEntries = JSON.parse(localStorage.getItem('bb-log') || '[]');
 let settings = JSON.parse(localStorage.getItem('bb-settings') || JSON.stringify({
-  rsi: 14, maShort: 20, maLong: 50, momentum: 10, rsiBuy: 30, rsiSell: 70
+  rsi: 21, maShort: 50, maLong: 200, momentum: 20, rsiBuy: 35, rsiSell: 65
 }));
 let priceCache = {};
 
@@ -753,30 +758,54 @@ function calcMomentum(closes, period) {
   return ((now - old) / old) * 100;
 }
 
-function deriveSignal(rsi, maCross, momentum, s) {
+// Beraknar 52-veckors high/low-position (0-100%)
+function calc52wPosition(closes) {
+  if (closes.length < 2) return null;
+  const high = Math.max.apply(null, closes);
+  const low  = Math.min.apply(null, closes);
+  if (high === low) return 50;
+  return ((closes[closes.length - 1] - low) / (high - low)) * 100;
+}
+
+function deriveSignal(rsi, maCross, momentum, pos52w, s) {
   let buyPoints = 0, sellPoints = 0;
   let reasons = [];
 
+  // RSI — oversalt/verkopt
   if (rsi !== null) {
-    if (rsi < s.rsiBuy)  { buyPoints++;  reasons.push('RSI ' + rsi.toFixed(0) + ' (översålt)'); }
-    if (rsi > s.rsiSell) { sellPoints++; reasons.push('RSI ' + rsi.toFixed(0) + ' (överköpt)'); }
+    if (rsi < s.rsiBuy)  { buyPoints++;  reasons.push('RSI ' + rsi.toFixed(0) + ' — oversalt'); }
+    else if (rsi > s.rsiSell) { sellPoints++; reasons.push('RSI ' + rsi.toFixed(0) + ' — verkopt'); }
+    else { reasons.push('RSI ' + rsi.toFixed(0) + ' — neutral'); }
   }
+
+  // Golden/Death Cross (50/200 MA)
   if (maCross !== null) {
-    if (maCross > 0) { buyPoints++;  reasons.push('MA-kors bullish'); }
-    else             { sellPoints++; reasons.push('MA-kors bearish'); }
+    if (maCross > 0) { buyPoints++;  reasons.push('Golden Cross (MA50 > MA200)'); }
+    else             { sellPoints++; reasons.push('Death Cross (MA50 < MA200)'); }
   }
+
+  // Momentum senaste 20 handelsdagar (~1 manad)
   if (momentum !== null) {
-    if (momentum > 5)  { buyPoints++;  reasons.push('Momentum +' + momentum.toFixed(1) + '%'); }
-    if (momentum < -5) { sellPoints++; reasons.push('Momentum ' + momentum.toFixed(1) + '%'); }
+    if (momentum > 3)  { buyPoints++;  reasons.push('Momentum +' + momentum.toFixed(1) + '% (1 man)'); }
+    else if (momentum < -3) { sellPoints++; reasons.push('Momentum ' + momentum.toFixed(1) + '% (1 man)'); }
+    else { reasons.push('Momentum ' + momentum.toFixed(1) + '% — sidleds'); }
   }
 
-  let signal = 'hold';
-  if (buyPoints > sellPoints && buyPoints >= 2)       signal = 'buy';
-  else if (sellPoints > buyPoints && sellPoints >= 2) signal = 'sell';
-  else if (buyPoints === 1 && sellPoints === 0)       signal = 'wait';
-  else if (sellPoints === 1 && buyPoints === 0)       signal = 'wait';
+  // 52-veckors position — extra tyngd åt trend
+  if (pos52w !== null) {
+    if (pos52w > 70)      reasons.push('Nara 52v-topp (' + pos52w.toFixed(0) + '%)');
+    else if (pos52w < 30) reasons.push('Nara 52v-botten (' + pos52w.toFixed(0) + '%)');
+  }
 
-  return { signal, reasons };
+  // Krav: minst 2 av 3 indikatorer maste peka samma hall
+  let signal = 'hold';
+  if (buyPoints >= 2 && sellPoints === 0)       signal = 'buy';
+  else if (sellPoints >= 2 && buyPoints === 0)  signal = 'sell';
+  else if (buyPoints === 1 && sellPoints === 0) signal = 'wait';
+  else if (sellPoints === 1 && buyPoints === 0) signal = 'wait';
+  else if (buyPoints >= 1 && sellPoints >= 1)   signal = 'hold'; // Motstaende signaler = hall
+
+  return { signal, reasons, buyPoints, sellPoints };
 }
 
 async function runAnalysis() {
@@ -789,16 +818,17 @@ async function runAnalysis() {
   const rows = [];
 
   for (const h of stocks) {
-    const data = await fetchYahoo(h.ticker, '3mo');
+    const data = await fetchYahoo(h.ticker, '1y');
     if (!data) { rows.push({ ...h, error: true }); continue; }
     const closes = data.map(d => d.c);
-    const rsi  = calcRSI(closes, s.rsi);
-    const maS  = calcMA(closes, s.maShort);
-    const maL  = calcMA(closes, s.maLong);
-    const mom  = calcMomentum(closes, s.momentum);
+    const rsi    = calcRSI(closes, s.rsi);
+    const maS    = calcMA(closes, s.maShort);
+    const maL    = calcMA(closes, s.maLong);
+    const mom    = calcMomentum(closes, s.momentum);
+    const pos52w = calc52wPosition(closes);
     const maCross = (maS && maL) ? maS - maL : null;
-    const { signal, reasons } = deriveSignal(rsi, maCross, mom, s);
-    rows.push({ ...h, rsi, maS, maL, maCross, mom, signal, reasons });
+    const { signal, reasons, buyPoints, sellPoints } = deriveSignal(rsi, maCross, mom, pos52w, s);
+    rows.push({ ...h, rsi, maS, maL, maCross, mom, pos52w, signal, reasons, buyPoints, sellPoints });
     addLog(signal === 'buy' ? 'buy' : signal === 'sell' ? 'sell' : 'info',
       `${h.ticker}: ${signal.toUpperCase()} — ${reasons.join(', ') || 'håll'}`);
   }
@@ -818,7 +848,10 @@ async function runAnalysis() {
         <td class="${r.maS && r.maL ? (r.maS > r.maL ? 'pos' : 'neg') : 'neu'}">${r.maS && r.maL ? (r.maS > r.maL ? '▲ Bullish' : '▼ Bearish') : '—'}</td>
         <td class="${r.mom !== null ? (r.mom > 0 ? 'pos' : 'neg') : 'neu'}">${r.mom !== null ? (r.mom > 0 ? '+' : '') + r.mom.toFixed(1) + '%' : '—'}</td>
         <td style="font-size:11px;color:var(--muted);max-width:180px">${r.reasons ? r.reasons.join('<br>') : '—'}</td>
-        <td><span class="sig ${r.signal}">${sigLabel(r.signal)}</span></td>
+        <td>
+          <span class="sig ${r.signal}">${sigLabel(r.signal)}</span>
+          <br><span style="font-size:10px;color:var(--muted)">${r.buyPoints !== undefined ? r.buyPoints + '↑ ' + r.sellPoints + '↓' : ''}</span>
+        </td>
       </tr>`;
   }).join('');
 
@@ -1132,12 +1165,12 @@ function saveSettings() {
 }
 
 function loadSettings() {
-  el('cfg-rsi').value      = settings.rsi;
-  el('cfg-ma-short').value = settings.maShort;
-  el('cfg-ma-long').value  = settings.maLong;
-  el('cfg-mom').value      = settings.momentum;
-  el('cfg-rsi-buy').value  = settings.rsiBuy;
-  el('cfg-rsi-sell').value = settings.rsiSell;
+  el('cfg-rsi').value      = settings.rsi      || 21;
+  el('cfg-ma-short').value = settings.maShort  || 50;
+  el('cfg-ma-long').value  = settings.maLong   || 200;
+  el('cfg-mom').value      = settings.momentum || 20;
+  el('cfg-rsi-buy').value  = settings.rsiBuy   || 35;
+  el('cfg-rsi-sell').value = settings.rsiSell  || 65;
 }
 
 // ══════════════════════════════════════════
