@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Börsboten</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg:        #080c10;
+    --surface:   #0d1117;
+    --card:      #111820;
+    --border:    #1e2d3d;
+    --accent:    #00e5ff;
+    --green:     #00e676;
+    --red:       #ff3d57;
+    --yellow:    #ffd740;
+    --text:      #c9d1d9;
+    --muted:     #4a5568;
+    --heading:   #e6edf3;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* SCANLINE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--heading); }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+    margin-right: 6px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .status-label { color: var(--muted); font-size: 11px; }
+
+  nav {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    overflow-x: auto;
+  }
+  nav button {
+    flex: none;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    padding: 12px 20px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  nav button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  nav button:hover:not(.active) { color: var(--heading); }
+
+  .page { display: none; padding: 20px; max-width: 900px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* CARDS */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* SUMMARY ROW */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .summary-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px;
+  }
+  .summary-item .label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+  .summary-item .value { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; color: var(--heading); }
+  .summary-item .sub { font-size: 11px; margin-top: 2px; }
+
+  /* TABLE */
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th {
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tbl td {
+    padding: 10px 10px;
+    border-bottom: 1px solid rgba(30,45,61,0.5);
+    vertical-align: middle;
+  }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neu { color: var(--muted); }
+
+  .ticker-badge {
+    display: inline-block;
+    background: rgba(0,229,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  /* SIGNAL BADGE */
+  .sig {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .sig.buy    { background: rgba(0,230,118,0.15); color: var(--green); border: 1px solid rgba(0,230,118,0.3); }
+  .sig.sell   { background: rgba(255,61,87,0.15);  color: var(--red);   border: 1px solid rgba(255,61,87,0.3); }
+  .sig.hold   { background: rgba(74,85,104,0.2);   color: var(--muted); border: 1px solid var(--border); }
+  .sig.wait   { background: rgba(255,215,64,0.1);  color: var(--yellow);border: 1px solid rgba(255,215,64,0.2); }
+
+  /* BUTTONS */
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 9px 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: none;
+    transition: all .15s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+  .btn-primary:hover { background: #26f0ff; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--heading); border-color: var(--heading); }
+  .btn-danger {
+    background: transparent;
+    color: var(--red);
+    border: 1px solid rgba(255,61,87,0.3);
+  }
+  .btn-danger:hover { background: rgba(255,61,87,0.1); }
+
+  /* UPLOAD ZONE */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 6px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.03);
+  }
+  .upload-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .upload-icon { font-size: 32px; margin-bottom: 10px; }
+  .upload-zone p { color: var(--muted); font-size: 12px; }
+  .upload-zone strong { color: var(--accent); }
+
+  /* MINI CHART */
+  .sparkline { width: 80px; height: 30px; }
+
+  /* INDICATOR BAR */
+  .ind-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .ind-bar-fill { height: 100%; border-radius: 2px; transition: width .5s; }
+
+  /* FORM ELEMENTS */
+  input, select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--heading);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: 3px;
+    outline: none;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  label { font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 5px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media(max-width:480px) { .form-row { grid-template-columns: 1fr; } }
+
+  /* LOG */
+  .log-entry {
+    padding: 8px 12px;
+    border-left: 2px solid var(--border);
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .log-entry.buy  { border-color: var(--green); }
+  .log-entry.sell { border-color: var(--red); }
+  .log-entry.info { border-color: var(--accent); }
+  .log-time { color: var(--muted); margin-right: 8px; }
+
+  /* LOADING */
+  .loading { color: var(--muted); font-size: 11px; }
+  .spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+  }
+  .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
+
+  /* TOAST */
+  #toast {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 18px;
+    font-size: 12px;
+    color: var(--heading);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all .3s;
+    z-index: 9998;
+    max-width: 280px;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+
+  .flex-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  /* ANIMATE IN */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .page.active .card, .page.active .summary-item {
+    animation: fadeUp .3s ease both;
+  }
+  .page.active .card:nth-child(2) { animation-delay: .05s; }
+  .page.active .card:nth-child(3) { animation-delay: .1s; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Börs<span>Boten</span></div>
+  <div><span class="status-dot"></span><span class="status-label" id="status-label">Redo</span></div>
+</header>
+
+<nav>
+  <button class="active" onclick="showPage('portfölj')">Portfölj</button>
+  <button onclick="showPage('signaler')">Signaler</button>
+  <button onclick="showPage('importera')">Importera CSV</button>
+  <button onclick="showPage('logg')">Logg</button>
+  <button onclick="showPage('inställningar')">Inställningar</button>
+</nav>
+
+<!-- ═══════════ PORTFÖLJ ═══════════ -->
+<div class="page active" id="page-portfölj">
+  <div class="summary-grid" id="summary-grid">
+    <div class="summary-item">
+      <div class="label">Innehav</div>
+      <div class="value" id="sum-count">—</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Marknadsvärde</div>
+      <div class="value" id="sum-value">—</div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Dag +/-</div>
+      <div class="value" id="sum-day">—</div>
+      <div class="sub" id="sum-day-pct"></div>
+    </div>
+    <div class="summary-item">
+      <div class="label">Totalt +/-</div>
+      <div class="value" id="sum-total">—</div>
+      <div class="sub" id="sum-total-pct"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Mina innehav</div>
+    <div id="portfolio-table-wrap">
+      <div class="empty-state">
+        <div class="icon">📂</div>
+        <p>Inga innehav importerade.<br>Gå till <strong>Importera CSV</strong> eller lägg till manuellt.</p>
+        <br>
+        <button class="btn btn-primary" onclick="showPage('importera')">Importera CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Lägg till innehav manuellt</div>
+    <div class="form-row">
+      <div><label>Ticker (t.ex. ERIC-B.ST)</label><input id="m-ticker" placeholder="ERIC-B.ST"></div>
+      <div><label>Antal aktier</label><input id="m-qty" type="number" placeholder="100"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Snittkurs (SEK)</label><input id="m-avg" type="number" placeholder="89.50"></div>
+      <div><label>Namn (valfritt)</label><input id="m-name" placeholder="Ericsson B"></div>
+    </div>
+    <button class="btn btn-primary" onclick="addManual()">Lägg till</button>
+  </div>
+</div>
+
+<!-- ═══════════ SIGNALER ═══════════ -->
+<div class="page" id="page-signaler">
+  <div class="card">
+    <div class="flex-row" style="margin-bottom:14px">
+      <div class="card-title grow" style="margin:0">Tekniska signaler</div>
+      <button class="btn btn-ghost" style="font-size:10px" onclick="testProxy()">Testa anslutning</button>
+      <button class="btn btn-primary" onclick="runAnalysis()">Analysera nu</button>
+    </div>
+    <div id="signals-wrap">
+      <div class="empty-state">
+        <div class="icon">📡</div>
+        <p>Importera en portfölj och klicka på <strong>Analysera nu</strong>.</p>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Strategi-förklaring</div>
+    <p style="color:var(--muted);line-height:1.7;font-size:12px">
+      Boten analyserar varje innehav med tre indikatorer:<br><br>
+      <strong style="color:var(--heading)">RSI (14)</strong> — Relative Strength Index. Under 30 = översålt (köpsignal). Över 70 = överköpt (säljsignal).<br><br>
+      <strong style="color:var(--heading)">MA Cross (20/50)</strong> — När 20-dagars snittet korsar över 50-dagars = bullish. Under = bearish.<br><br>
+      <strong style="color:var(--heading)">Momentum (10d)</strong> — Procentuell förändring senaste 10 handelsdagar.<br><br>
+      Boten <em>föreslår</em> — du beslutar.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════ IMPORTERA ═══════════ -->
+<div class="page" id="page-importera">
+  <div class="card">
+    <div class="card-title">Exportera från Avanza</div>
+    <ol style="color:var(--muted);line-height:2;font-size:12px;padding-left:18px">
+      <li>Logga in på <strong style="color:var(--heading)">avanza.se</strong></li>
+      <li>Gå till <strong style="color:var(--heading)">Mitt sparande → Innehav</strong></li>
+      <li>Klicka på <strong style="color:var(--heading)">Exportera → CSV</strong></li>
+      <li>Ladda upp filen nedan</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Ladda upp CSV</div>
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" accept=".csv,.txt" onchange="handleFile(this.files[0])">
+      <div class="upload-icon">📄</div>
+      <p><strong>Välj fil</strong> eller dra och släpp här</p>
+      <p style="margin-top:6px;font-size:11px">Stödjer Avanza-format & generiskt CSV</p>
+    </div>
+    <div id="parse-preview" style="margin-top:16px"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Eller klistra in CSV-data</div>
+    <textarea id="csv-paste" style="width:100%;height:120px;background:var(--surface);border:1px solid var(--border);color:var(--heading);font-family:'Space Mono',monospace;font-size:11px;padding:10px;border-radius:3px;resize:vertical" placeholder="Klistra in CSV-innehåll här..."></textarea>
+    <br><br>
+    <button class="btn btn-primary" onclick="parsePasted()">Tolka CSV</button>
+  </div>
+</div>
+
+<!-- ═══════════ LOGG ═══════════ -->
+<div class="page" id="page-logg">
+  <div class="card">
+    <div class="flex-row" style="margin-bottom:14px">
+      <div class="card-title grow" style="margin:0">Händelselogg</div>
+      <button class="btn btn-ghost" onclick="clearLog()">Rensa</button>
+    </div>
+    <div id="log-entries">
+      <div class="empty-state"><div class="icon">🗒️</div><p>Inga händelser ännu.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ INSTÄLLNINGAR ═══════════ -->
+<div class="page" id="page-inställningar">
+  <div class="card">
+    <div class="card-title">Analysparametrar</div>
+    <div class="form-row">
+      <div><label>RSI-period (dagar)</label><input id="cfg-rsi" type="number" value="14"></div>
+      <div><label>Kort MA (dagar)</label><input id="cfg-ma-short" type="number" value="20"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Lång MA (dagar)</label><input id="cfg-ma-long" type="number" value="50"></div>
+      <div><label>Momentum-period (dagar)</label><input id="cfg-mom" type="number" value="10"></div>
+    </div>
+    <div class="form-row">
+      <div><label>RSI köpgräns</label><input id="cfg-rsi-buy" type="number" value="30"></div>
+      <div><label>RSI säljgräns</label><input id="cfg-rsi-sell" type="number" value="70"></div>
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Spara inställningar</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Portföljdata</div>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:14px">All data sparas lokalt i din webbläsare. Inget skickas till någon server.</p>
+    <div class="flex-row">
+      <button class="btn btn-ghost" onclick="exportData()">Exportera data (JSON)</button>
+      <button class="btn btn-danger" onclick="clearAll()">Rensa allt</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Om BörsBoten</div>
+    <p style="color:var(--muted);font-size:12px;line-height:1.8">
+      Kurser hämtas via <strong style="color:var(--heading)">Yahoo Finance</strong> (15 min fördröjning).<br>
+      Signalerna är <strong style="color:var(--heading)">indikativa</strong> — inte finansiell rådgivning.<br>
+      Alla handelsbeslut fattas av dig.
+    </p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════
+let portfolio = JSON.parse(localStorage.getItem('bb-portfolio') || '[]');
+let logEntries = JSON.parse(localStorage.getItem('bb-log') || '[]');
+let settings = JSON.parse(localStorage.getItem('bb-settings') || JSON.stringify({
+  rsi: 14, maShort: 20, maLong: 50, momentum: 10, rsiBuy: 30, rsiSell: 70
+}));
+let priceCache = {};
+
+// ══════════════════════════════════════════
+//  NAV
+// ══════════════════════════════════════════
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.target.classList.add('active');
+  if (name === 'portfölj') renderPortfolio();
+}
+
+// ══════════════════════════════════════════
+//  DATAHÄMTNING — Yahoo Finance med proxy-fallback
+// ══════════════════════════════════════════
+
+const PROXIES = [
+  t => `https://corsproxy.io/?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/' + t)}`,
+  t => `https://api.allorigins.win/raw?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/' + t)}`,
+  t => `https://query1.finance.yahoo.com/v8/finance/chart/${t}`,
+  t => `https://query2.finance.yahoo.com/v8/finance/chart/${t}`,
+];
+
+async function yahooFetch(ticker, params) {
+  const t = encodeURIComponent(ticker);
+  const qs = new URLSearchParams(params).toString();
+  for (const proxyFn of PROXIES) {
+    try {
+      const url = proxyFn(t) + '?' + qs;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json && json.chart && json.chart.result && json.chart.result[0]) return json;
+    } catch(e) { /* prova nasta proxy */ }
+  }
+  return null;
+}
+
+async function testProxy() {
+  const wrap = document.getElementById('signals-wrap');
+  wrap.innerHTML = '<div class="loading">Testar anslutning till Yahoo Finance...</div>';
+  const testTicker = 'SAAB-B.ST';
+  const results = [];
+  const proxyNames = ['corsproxy.io', 'allorigins.win', 'query1 direkt', 'query2 direkt'];
+  for (let i = 0; i < PROXIES.length; i++) {
+    try {
+      const t = encodeURIComponent(testTicker);
+      const url = PROXIES[i](t) + '?interval=1d&range=5d&includePrePost=false';
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      const json = await res.json();
+      const ok = !!(json && json.chart && json.chart.result && json.chart.result[0]);
+      results.push({ name: proxyNames[i], ok, status: res.status });
+    } catch(e) {
+      results.push({ name: proxyNames[i], ok: false, status: e.message });
+    }
+  }
+  wrap.innerHTML = '<div class="card-title">Anslutningstest</div>' +
+    results.map(r => '<div class="log-entry ' + (r.ok ? 'buy' : 'sell') + '">' +
+      (r.ok ? '✓ ' : '✗ ') + r.name + ' — ' + (r.ok ? 'OK' : r.status) +
+    '</div>').join('') +
+    '<br><button class="btn btn-primary" onclick="runAnalysis()">Analysera nu</button>';
+}
+
+async function fetchYahoo(ticker, period) {
+  period = period || '3mo';
+  const key = ticker + period;
+  if (priceCache[key]) return priceCache[key];
+  setStatus('Hamtar ' + ticker);
+
+  const json = await yahooFetch(ticker, { interval: '1d', range: period, includePrePost: false });
+  if (!json) {
+    setStatus('Fel');
+    addLog('info', 'Kunde inte hamta ' + ticker + ' — kontrollera ticker-namn');
+    return null;
+  }
+
+  const chart = json.chart.result[0];
+  const closes = chart.indicators.quote[0].close;
+  const timestamps = chart.timestamp;
+  const data = closes
+    .map(function(c, i) { return { t: timestamps[i], c: c || null }; })
+    .filter(function(d) { return d.c !== null; });
+
+  priceCache[key] = data;
+  setStatus('Redo');
+  return data;
+}
+
+async function fetchCurrentPrice(ticker) {
+  const json = await yahooFetch(ticker, { interval: '1d', range: '5d' });
+  if (!json) return null;
+  try {
+    const q = json.chart.result[0].indicators.quote[0];
+    const closes = q.close.filter(function(c) { return c !== null; });
+    const opens  = q.open.filter(function(o) { return o !== null; });
+    return {
+      price:     closes[closes.length - 1],
+      open:      opens[opens.length - 1],
+      prevClose: closes.length > 1 ? closes[closes.length - 2] : closes[0]
+    };
+  } catch(e) { return null; }
+}
+
+// ══════════════════════════════════════════
+//  PORTFOLIO RENDER
+// ══════════════════════════════════════════
+async function renderPortfolio() {
+  if (portfolio.length === 0) {
+    document.getElementById('portfolio-table-wrap').innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📂</div>
+        <p>Inga innehav importerade.<br>Gå till <strong>Importera CSV</strong> eller lägg till manuellt.</p>
+        <br>
+        <button class="btn btn-primary" onclick="showPageDirect('importera')">Importera CSV</button>
+      </div>`;
+    resetSummary();
+    return;
+  }
+
+  document.getElementById('portfolio-table-wrap').innerHTML = `
+    <div class="loading"><span class="spin">⟳</span> Hämtar kurser…</div>`;
+
+  let rows = [];
+  let totalValue = 0, totalCost = 0, totalDayChange = 0;
+
+  for (const h of portfolio) {
+    const q = await fetchCurrentPrice(h.ticker);
+    let row = { ...h, price: null, dayChg: null, dayPct: null, totalChg: null, totalPct: null, value: null };
+    if (q && q.price) {
+      row.price    = q.price;
+      row.value    = q.price * h.qty;
+      row.dayChg   = (q.price - q.prevClose) * h.qty;
+      row.dayPct   = ((q.price - q.prevClose) / q.prevClose) * 100;
+      row.totalChg = (q.price - h.avg) * h.qty;
+      row.totalPct = ((q.price - h.avg) / h.avg) * 100;
+      totalValue   += row.value;
+      totalCost    += h.avg * h.qty;
+      totalDayChange += row.dayChg;
+    }
+    rows.push(row);
+  }
+
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+  const dayPct = totalValue > 0 ? (totalDayChange / (totalValue - totalDayChange)) * 100 : 0;
+
+  document.getElementById('sum-count').textContent = portfolio.length;
+  document.getElementById('sum-value').textContent = fmtSEK(totalValue);
+  el('sum-day').textContent = fmtChange(totalDayChange);
+  el('sum-day').className = 'value ' + colorClass(totalDayChange);
+  el('sum-day-pct').textContent = fmtPct(dayPct);
+  el('sum-day-pct').className = 'sub ' + colorClass(totalDayChange);
+  el('sum-total').textContent = fmtChange(totalPnl);
+  el('sum-total').className = 'value ' + colorClass(totalPnl);
+  el('sum-total-pct').textContent = fmtPct(totalPnlPct);
+  el('sum-total-pct').className = 'sub ' + colorClass(totalPnl);
+
+  const tbody = rows.map((r, i) => `
+    <tr>
+      <td><span class="ticker-badge">${r.ticker}</span><br><span style="color:var(--muted);font-size:11px">${r.name||''}</span></td>
+      <td>${r.qty}</td>
+      <td>${r.price ? fmtSEK(r.price) : '—'}</td>
+      <td>${fmtSEK(r.avg)}</td>
+      <td>${r.value ? fmtSEK(r.value) : '—'}</td>
+      <td class="${colorClass(r.dayChg)}">${r.dayChg !== null ? fmtChange(r.dayChg) : '—'}<br><small>${r.dayPct !== null ? fmtPct(r.dayPct) : ''}</small></td>
+      <td class="${colorClass(r.totalChg)}">${r.totalChg !== null ? fmtChange(r.totalChg) : '—'}<br><small>${r.totalPct !== null ? fmtPct(r.totalPct) : ''}</small></td>
+      <td><button class="btn btn-danger" style="padding:4px 10px;font-size:10px" onclick="removeHolding(${i})">✕</button></td>
+    </tr>`).join('');
+
+  document.getElementById('portfolio-table-wrap').innerHTML = `
+    <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr>
+        <th>Bolag</th><th>Antal</th><th>Kurs</th><th>Snitt</th>
+        <th>Värde</th><th>Dag +/-</th><th>Totalt +/-</th><th></th>
+      </tr></thead>
+      <tbody>${tbody}</tbody>
+    </table></div>`;
+}
+
+function resetSummary() {
+  ['sum-count','sum-value','sum-day','sum-total'].forEach(id => el(id).textContent = '—');
+  ['sum-day-pct','sum-total-pct'].forEach(id => el(id).textContent = '');
+}
+
+// ══════════════════════════════════════════
+//  TECHNICAL ANALYSIS
+// ══════════════════════════════════════════
+function calcRSI(closes, period) {
+  if (closes.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const avgG = gains / period, avgL = losses / period;
+  if (avgL === 0) return 100;
+  return 100 - 100 / (1 + avgG / avgL);
+}
+
+function calcMA(closes, period) {
+  if (closes.length < period) return null;
+  return closes.slice(-period).reduce((a,b) => a+b, 0) / period;
+}
+
+function calcMomentum(closes, period) {
+  if (closes.length < period + 1) return null;
+  const old = closes[closes.length - period - 1];
+  const now = closes[closes.length - 1];
+  return ((now - old) / old) * 100;
+}
+
+function deriveSignal(rsi, maCross, momentum, s) {
+  let buyPoints = 0, sellPoints = 0;
+  let reasons = [];
+
+  if (rsi !== null) {
+    if (rsi < s.rsiBuy)  { buyPoints++;  reasons.push('RSI ' + rsi.toFixed(0) + ' (översålt)'); }
+    if (rsi > s.rsiSell) { sellPoints++; reasons.push('RSI ' + rsi.toFixed(0) + ' (överköpt)'); }
+  }
+  if (maCross !== null) {
+    if (maCross > 0) { buyPoints++;  reasons.push('MA-kors bullish'); }
+    else             { sellPoints++; reasons.push('MA-kors bearish'); }
+  }
+  if (momentum !== null) {
+    if (momentum > 5)  { buyPoints++;  reasons.push('Momentum +' + momentum.toFixed(1) + '%'); }
+    if (momentum < -5) { sellPoints++; reasons.push('Momentum ' + momentum.toFixed(1) + '%'); }
+  }
+
+  let signal = 'hold';
+  if (buyPoints > sellPoints && buyPoints >= 2)       signal = 'buy';
+  else if (sellPoints > buyPoints && sellPoints >= 2) signal = 'sell';
+  else if (buyPoints === 1 && sellPoints === 0)       signal = 'wait';
+  else if (sellPoints === 1 && buyPoints === 0)       signal = 'wait';
+
+  return { signal, reasons };
+}
+
+async function runAnalysis() {
+  const stocks = portfolio.filter(function(h) { return h.isStock !== false && h.ticker; });
+  if (portfolio.length === 0) { toast('Importera en portfolj forst'); return; }
+  if (stocks.length === 0) { toast('Inga aktier med ticker — fonder kan inte analyseras'); return; }
+  const wrap = document.getElementById('signals-wrap');
+  wrap.innerHTML = `<div class="loading"><span class="spin">\u27f3</span> Analyserar ${stocks.length} aktier...</div>`;
+  const s = settings;
+  const rows = [];
+
+  for (const h of stocks) {
+    const data = await fetchYahoo(h.ticker, '3mo');
+    if (!data) { rows.push({ ...h, error: true }); continue; }
+    const closes = data.map(d => d.c);
+    const rsi  = calcRSI(closes, s.rsi);
+    const maS  = calcMA(closes, s.maShort);
+    const maL  = calcMA(closes, s.maLong);
+    const mom  = calcMomentum(closes, s.momentum);
+    const maCross = (maS && maL) ? maS - maL : null;
+    const { signal, reasons } = deriveSignal(rsi, maCross, mom, s);
+    rows.push({ ...h, rsi, maS, maL, maCross, mom, signal, reasons });
+    addLog(signal === 'buy' ? 'buy' : signal === 'sell' ? 'sell' : 'info',
+      `${h.ticker}: ${signal.toUpperCase()} — ${reasons.join(', ') || 'håll'}`);
+  }
+
+  const html = rows.map(r => {
+    if (r.error) return `
+      <tr>
+        <td><span class="ticker-badge">${r.ticker}</span></td>
+        <td colspan="4" class="neg">Kunde inte hämta data</td>
+        <td><span class="sig hold">OKÄND</span></td>
+        <td></td>
+      </tr>`;
+    return `
+      <tr>
+        <td><span class="ticker-badge">${r.ticker}</span><br><span style="color:var(--muted);font-size:11px">${r.name||''}</span></td>
+        <td>${r.rsi !== null ? r.rsi.toFixed(1) : '—'}</td>
+        <td class="${r.maS && r.maL ? (r.maS > r.maL ? 'pos' : 'neg') : 'neu'}">${r.maS && r.maL ? (r.maS > r.maL ? '▲ Bullish' : '▼ Bearish') : '—'}</td>
+        <td class="${r.mom !== null ? (r.mom > 0 ? 'pos' : 'neg') : 'neu'}">${r.mom !== null ? (r.mom > 0 ? '+' : '') + r.mom.toFixed(1) + '%' : '—'}</td>
+        <td style="font-size:11px;color:var(--muted);max-width:180px">${r.reasons ? r.reasons.join('<br>') : '—'}</td>
+        <td><span class="sig ${r.signal}">${sigLabel(r.signal)}</span></td>
+      </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr>
+        <th>Bolag</th><th>RSI</th><th>MA-kors</th><th>Momentum</th><th>Skäl</th><th>Signal</th>
+      </tr></thead>
+      <tbody>${html}</tbody>
+    </table></div>`;
+
+  toast('Analys klar — ' + rows.length + ' innehav analyserade');
+}
+
+function sigLabel(s) {
+  return { buy: 'KÖP', sell: 'SÄLJ', hold: 'HÅLL', wait: 'VÄNTA' }[s] || s;
+}
+
+// ══════════════════════════════════════════
+//  CSV IMPORT
+// ══════════════════════════════════════════
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => processCSV(e.target.result);
+  reader.readAsText(file, 'UTF-8');
+  document.getElementById('upload-zone').style.borderColor = 'var(--green)';
+}
+
+function parsePasted() {
+  const text = document.getElementById('csv-paste').value.trim();
+  if (!text) { toast('Ingen data inklistrad'); return; }
+  processCSV(text);
+}
+
+// Kortnamn → Yahoo ticker-mappning för kända svenska aktier
+// Kortnamn (Avanza) -> Yahoo Finance ticker
+// Verifiera mot https://finance.yahoo.com/lookup/ vid tvekan
+const TICKER_MAP = {
+  // Stora bolag
+  'SAAB B':    'SAAB-B.ST',
+  'SSAB B':    'SSAB-B.ST',
+  'HM B':      'HM-B.ST',
+  'SWED A':    'SWED-A.ST',
+  'INVE B':    'INVE-B.ST',
+  'TELIA':     'TELIA.ST',
+  'PEAB B':    'PEAB-B.ST',
+  'KOBR B':    'KOBR-B.ST',
+  'SHB B':     'SHB-B.ST',
+  'SHB A':     'SHB-A.ST',
+  'NDA SE':    'NDA-SE.ST',
+  'TEL2 B':    'TEL2-B.ST',
+  'CLAS B':    'CLAS-B.ST',
+  'DIOS':      'DIOS.ST',
+  'ERIC B':    'ERIC-B.ST',
+  'ERIC A':    'ERIC-A.ST',
+  'VOLV B':    'VOLV-B.ST',
+  'VOLV A':    'VOLV-A.ST',
+  'ABB':       'ABB.ST',
+  'ATCO A':    'ATCO-A.ST',
+  'ATCO B':    'ATCO-B.ST',
+  'SKF B':     'SKF-B.ST',
+  'SKF A':     'SKF-A.ST',
+  'SAND':      'SAND.ST',
+  'ALFA':      'ALFA.ST',
+  'BOL':       'BOL.ST',
+  'CAST':      'CAST.ST',
+  'NIBE B':    'NIBE-B.ST',
+  'HEXA B':    'HEXA-B.ST',
+  'ESSITY B':  'ESSITY-B.ST',
+  'ESSITY A':  'ESSITY-A.ST',
+  'SCA B':     'SCA-B.ST',
+  'ASSA B':    'ASSA-B.ST',
+  'KINV B':    'KINV-B.ST',
+  'LATO B':    'LATO-B.ST',
+  'SWMA':      'SWMA.ST',
+  'AXFO':      'AXFO.ST',
+  'LIFCO B':   'LIFCO-B.ST',
+  'BALD B':    'BALD-B.ST',
+  'HUSQ B':    'HUSQ-B.ST',
+  'GETI B':    'GETI-B.ST',
+  'LUND B':    'LUND-B.ST',
+  'INDU A':    'INDU-A.ST',
+  'INDU C':    'INDU-C.ST',
+};
+
+function kortnamn2Yahoo(kortnamn, marknad) {
+  const k = kortnamn.trim().toUpperCase();
+  if (TICKER_MAP[k]) return TICKER_MAP[k];
+  // Generell regel: byt mellanslag mot bindestreck, lägg till .ST
+  const base = k.replace(/\s+/g, '-');
+  return base + '.ST';
+}
+
+function processCSV(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { toast('För få rader i CSV'); return; }
+
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const rawHeaders = lines[0].split(sep).map(h => h.replace(/"/g,'').trim());
+
+  // Bygg kolumnindex från faktiska Avanza-rubriker
+  const hi = {};
+  rawHeaders.forEach((h, i) => { hi[h] = i; });
+
+  // Avanza-format: Kontonummer;Namn;Kortnamn;Volym;Marknadsvärde;GAV (SEK);GAV;Valuta;Land;ISIN;Marknad;Typ
+  const isAvanza = 'Kortnamn' in hi && 'Volym' in hi && 'GAV (SEK)' in hi && 'Typ' in hi;
+
+  const stocks = [], funds = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(sep).map(c => c.replace(/"/g,'').trim());
+    if (cols.length < 4) continue;
+
+    if (isAvanza) {
+      const typ      = cols[hi['Typ']]        || '';
+      const namn     = cols[hi['Namn']]        || '';
+      const kortnamn = cols[hi['Kortnamn']]    || '';
+      const volym    = parseFloat((cols[hi['Volym']]       || '0').replace(',','.'));
+      const gav      = parseFloat((cols[hi['GAV (SEK)']]   || '0').replace(',','.').replace(/\s/g,''));
+      const marknad  = cols[hi['Marknad']]     || '';
+      const konto    = cols[hi['Kontonummer']] || '';
+      const isin     = cols[hi['ISIN']]        || '';
+
+      if (isNaN(volym) || volym <= 0) continue;
+
+      if (typ === 'STOCK') {
+        const ticker = kortnamn2Yahoo(kortnamn, marknad);
+        stocks.push({ ticker, qty: volym, avg: gav || 0, name: namn, konto, isin, isStock: true });
+      } else if (typ === 'FUND') {
+        funds.push({ ticker: null, qty: volym, avg: gav || 0, name: namn, konto, isin, isStock: false });
+      }
+    } else {
+      // Generellt fallback-format
+      const colMap = {};
+      rawHeaders.forEach((h, idx) => {
+        const hl = h.toLowerCase();
+        if (hl.includes('ticker') || hl.includes('symbol') || hl.includes('kortnamn')) colMap.ticker = idx;
+        if (hl.includes('antal') || hl.includes('volym')) colMap.qty = idx;
+        if (hl.includes('snitt') || hl.includes('gav'))   colMap.avg = idx;
+        if (hl.includes('namn') || hl.includes('name'))    colMap.name = idx;
+      });
+      const ticker = colMap.ticker !== undefined ? cols[colMap.ticker] : null;
+      const qty    = colMap.qty    !== undefined ? parseFloat(cols[colMap.qty].replace(',','.')) : null;
+      const avg    = colMap.avg    !== undefined ? parseFloat(cols[colMap.avg].replace(',','.').replace(/\s/g,'')) : 0;
+      const name   = colMap.name   !== undefined ? cols[colMap.name] : '';
+      if (!ticker || isNaN(qty) || qty <= 0) continue;
+      let t = ticker.toUpperCase().replace(/\s+/g,'-');
+      if (!t.includes('.')) t += '.ST';
+      stocks.push({ ticker: t, qty, avg: avg || 0, name, isStock: true });
+    }
+  }
+
+  const totalRows = stocks.length + funds.length;
+  if (totalRows === 0) {
+    document.getElementById('parse-preview').innerHTML = `
+      <div style="color:var(--red);font-size:12px">⚠ Kunde inte tolka CSV. Kontrollera format.</div>
+      <p style="color:var(--muted);font-size:11px;margin-top:8px">Förväntat Avanza-format med kolumner: Kortnamn, Volym, GAV (SEK), Typ</p>`;
+    return;
+  }
+
+  const stockRows = stocks.map(p => `<tr>
+    <td><span class="ticker-badge">${p.ticker}</span></td>
+    <td style="color:var(--muted);font-size:11px">${p.name}</td>
+    <td>${p.qty}</td>
+    <td>${p.avg ? fmtSEK(p.avg) : '—'}</td>
+    <td><span class="sig buy" style="font-size:9px">AKTIE</span></td>
+  </tr>`).join('');
+
+  const fundRows = funds.map(p => `<tr>
+    <td><span style="color:var(--muted);font-size:11px">—</span></td>
+    <td style="color:var(--muted);font-size:11px">${p.name}</td>
+    <td>${p.qty.toLocaleString('sv-SE',{maximumFractionDigits:4})}</td>
+    <td>${p.avg ? fmtSEK(p.avg) : '—'}</td>
+    <td><span class="sig hold" style="font-size:9px">FOND</span></td>
+  </tr>`).join('');
+
+  document.getElementById('parse-preview').innerHTML = `
+    <div style="color:var(--green);font-size:12px;margin-bottom:4px">✓ Hittade ${totalRows} innehav i CSV-filen</div>
+    <p style="color:var(--muted);font-size:11px;margin-bottom:12px">
+      ${stocks.length} aktier (kan analyseras) · ${funds.length} fonder (visas utan kurssignal)
+    </p>
+    <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Ticker</th><th>Namn</th><th>Antal/Andelar</th><th>GAV</th><th>Typ</th></tr></thead>
+      <tbody>${stockRows}${fundRows}</tbody>
+    </table></div>
+    <br>
+    <div class="flex-row">
+      <button class="btn btn-primary" onclick="confirmImportAvanza()">Importera ${stocks.length} aktier</button>
+      ${funds.length > 0 ? `<button class="btn btn-ghost" onclick="confirmImportAvanza(true)">Importera alla inkl. fonder</button>` : ''}
+      <button class="btn btn-ghost" onclick="document.getElementById('parse-preview').innerHTML=''">Avbryt</button>
+    </div>`;
+
+  // Spara parsed-data temporärt för confirm
+  window._parsedStocks = stocks;
+  window._parsedFunds  = funds;
+}
+
+function confirmImport(parsed) {
+  const existing = portfolio.map(h => h.ticker);
+  let added = 0;
+  for (const p of parsed) {
+    if (!existing.includes(p.ticker)) { portfolio.push(p); added++; }
+  }
+  savePortfolio();
+  toast(`Importerade ${added} innehav`);
+  addLog('info', `CSV-import: ${added} innehav tillagda`);
+  document.getElementById('parse-preview').innerHTML = '';
+  showPageDirect('portfölj');
+}
+
+function confirmImportAvanza(includeFunds) {
+  const toImport = includeFunds
+    ? [...(window._parsedStocks||[]), ...(window._parsedFunds||[])]
+    : (window._parsedStocks||[]);
+  const existing = portfolio.map(h => h.ticker || h.name);
+  let added = 0, skipped = 0;
+  for (const p of toImport) {
+    const key = p.ticker || p.name;
+    if (existing.includes(key)) { skipped++; continue; }
+    portfolio.push(p);
+    existing.push(key);
+    added++;
+  }
+  savePortfolio();
+  toast(`Importerade ${added} innehav${skipped ? ' (' + skipped + ' dubbletter)' : ''}`);
+  addLog('info', `Avanza CSV-import: ${added} tillagda, ${skipped} dubbletter`);
+  document.getElementById('parse-preview').innerHTML = '';
+  window._parsedStocks = null; window._parsedFunds = null;
+  showPageDirect('portfölj');
+}
+
+// ══════════════════════════════════════════
+//  MANUAL ADD / REMOVE
+// ══════════════════════════════════════════
+function addManual() {
+  let ticker = el('m-ticker').value.trim().toUpperCase();
+  const qty  = parseFloat(el('m-qty').value);
+  const avg  = parseFloat(el('m-avg').value);
+  const name = el('m-name').value.trim();
+
+  if (!ticker) { toast('Ange en ticker'); return; }
+  if (isNaN(qty) || qty <= 0) { toast('Ange antal aktier'); return; }
+  if (!ticker.includes('.')) ticker += '.ST';
+
+  if (portfolio.find(h => h.ticker === ticker)) { toast(ticker + ' finns redan'); return; }
+
+  portfolio.push({ ticker, qty, avg: avg || 0, name, isStock: true });
+  savePortfolio();
+  addLog('info', 'Manuellt tillagt: ' + ticker + ' ×' + qty);
+  toast('Lade till ' + ticker);
+  el('m-ticker').value = ''; el('m-qty').value = ''; el('m-avg').value = ''; el('m-name').value = '';
+  renderPortfolio();
+}
+
+function removeHolding(i) {
+  const t = portfolio[i].ticker;
+  portfolio.splice(i, 1);
+  savePortfolio();
+  addLog('info', 'Tog bort: ' + t);
+  toast('Tog bort ' + t);
+  renderPortfolio();
+}
+
+// ══════════════════════════════════════════
+//  LOG
+// ══════════════════════════════════════════
+function addLog(type, msg) {
+  const ts = new Date().toLocaleTimeString('sv-SE');
+  logEntries.unshift({ type, msg, ts });
+  if (logEntries.length > 200) logEntries.pop();
+  localStorage.setItem('bb-log', JSON.stringify(logEntries));
+  renderLog();
+}
+
+function renderLog() {
+  const wrap = el('log-entries');
+  if (logEntries.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><div class="icon">🗒️</div><p>Inga händelser ännu.</p></div>`;
+    return;
+  }
+  wrap.innerHTML = logEntries.map(e => `
+    <div class="log-entry ${e.type}">
+      <span class="log-time">${e.ts}</span>${e.msg}
+    </div>`).join('');
+}
+
+function clearLog() {
+  logEntries = [];
+  localStorage.setItem('bb-log', '[]');
+  renderLog();
+}
+
+// ══════════════════════════════════════════
+//  SETTINGS
+// ══════════════════════════════════════════
+function saveSettings() {
+  settings = {
+    rsi:      parseInt(el('cfg-rsi').value)      || 14,
+    maShort:  parseInt(el('cfg-ma-short').value) || 20,
+    maLong:   parseInt(el('cfg-ma-long').value)  || 50,
+    momentum: parseInt(el('cfg-mom').value)      || 10,
+    rsiBuy:   parseInt(el('cfg-rsi-buy').value)  || 30,
+    rsiSell:  parseInt(el('cfg-rsi-sell').value) || 70,
+  };
+  localStorage.setItem('bb-settings', JSON.stringify(settings));
+  priceCache = {};
+  toast('Inställningar sparade');
+}
+
+function loadSettings() {
+  el('cfg-rsi').value      = settings.rsi;
+  el('cfg-ma-short').value = settings.maShort;
+  el('cfg-ma-long').value  = settings.maLong;
+  el('cfg-mom').value      = settings.momentum;
+  el('cfg-rsi-buy').value  = settings.rsiBuy;
+  el('cfg-rsi-sell').value = settings.rsiSell;
+}
+
+// ══════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════
+function savePortfolio() { localStorage.setItem('bb-portfolio', JSON.stringify(portfolio)); }
+
+function exportData() {
+  const data = JSON.stringify({ portfolio, log: logEntries, settings }, null, 2);
+  const a = document.createElement('a');
+  a.href = 'data:application/json,' + encodeURIComponent(data);
+  a.download = 'borsboten-' + new Date().toISOString().split('T')[0] + '.json';
+  a.click();
+}
+
+function clearAll() {
+  if (!confirm('Rensa all portföljdata?')) return;
+  portfolio = []; logEntries = []; priceCache = {};
+  localStorage.removeItem('bb-portfolio');
+  localStorage.removeItem('bb-log');
+  renderPortfolio(); renderLog();
+  toast('All data rensad');
+}
+
+function setStatus(msg) { el('status-label').textContent = msg; }
+
+let toastTimer;
+function toast(msg) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function colorClass(v) { return v === null ? 'neu' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
+function fmtSEK(v) { return v === null ? '—' : v.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr'; }
+function fmtChange(v) { if (v === null) return '—'; return (v > 0 ? '+' : '') + v.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr'; }
+function fmtPct(v) { if (v === null) return ''; return (v > 0 ? '+' : '') + v.toFixed(2) + '%'; }
+function el(id) { return document.getElementById(id); }
+
+function showPageDirect(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  const buttons = document.querySelectorAll('nav button');
+  const names = ['portfölj','signaler','importera','logg','inställningar'];
+  const idx = names.indexOf(name);
+  if (idx >= 0) buttons[idx].classList.add('active');
+  if (name === 'portfölj') renderPortfolio();
+}
+
+// Drag-and-drop on upload zone
+const uz = document.getElementById('upload-zone');
+uz.addEventListener('dragover', e => { e.preventDefault(); uz.classList.add('drag-over'); });
+uz.addEventListener('dragleave', () => uz.classList.remove('drag-over'));
+uz.addEventListener('drop', e => {
+  e.preventDefault(); uz.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+// INIT — migrera gammal data som saknar isStock-flagga
+portfolio = portfolio.map(function(h) {
+  if (h.isStock === undefined) {
+    h.isStock = !!(h.ticker);  // har ticker = aktie
+  }
+  return h;
+});
+savePortfolio();
+
+loadSettings();
+renderLog();
+renderPortfolio();
+</script>
+</body>
+</html>
